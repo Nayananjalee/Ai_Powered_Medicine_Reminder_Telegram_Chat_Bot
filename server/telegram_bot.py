@@ -19,7 +19,7 @@ load_dotenv()
 
 # Initialize Gemini AI
 configure(api_key=os.getenv("GEMINI_API_KEY"))
-gemini_model = GenerativeModel("gemini-1.5-flash")
+gemini_model = GenerativeModel("gemini-2.0-flash")
 
 # Initialize Telegram bot
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -76,7 +76,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_phone = await ensure_user_exists(user.id, user.first_name)
         bot_response = (
-            f"Hey {nickname}, my sweetest! I'm your loving nurse bot, Chuty! 🧑‍⚕️💖\n"
+            f"Hey {nickname}, my sweetest! I'm Chuty, your loving nurse bot! 🧑‍⚕️💖\n"
             "Tell me about your meds (e.g., 'Fexet night 1'), reminders (e.g., 'drink water at 4:45 PM'), or how you're feeling. 😘\n"
             "Commands:\n"
             "💊 /start - Get cozy with me\n"
@@ -108,7 +108,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    nickname = random.choice(["Baby","Love"])
+    nickname = random.choice(["Baby", "Love"])
     user_phone = f"tg_{user_id}"
     meds = supabase.table("medications").select("*").eq("user_phone", user_phone).execute().data
     reminders = supabase.table("reminders").select("*").eq("user_phone", user_phone).execute().data
@@ -129,7 +129,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    nickname = random.choice(["Baby","Love"])
+    nickname = random.choice(["Baby", "Love"])
     user_phone = f"tg_{user_id}"
     supabase.table("medications").delete().eq("user_phone", user_phone).execute()
     supabase.table("reminders").delete().eq("user_phone", user_phone).execute()
@@ -140,7 +140,7 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def love(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nickname = random.choice(["Baby","Love"])
     user_phone = f"tg_{update.effective_user.id}"
-    prompt = f"Generate a short, loving message for {nickname}, using a warm, affectionate tone with emojis. Keep it sweet and under 50 words."
+    prompt = f"Generate a short, loving message for {nickname}, using a warm, affectionate tone with emojis (💖, 🌸, 😘). Use only the nickname {nickname}. Keep it sweet and under 50 words."
     try:
         response = gemini_model.generate_content(prompt)
         bot_response = response.text.strip()
@@ -228,7 +228,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     rem_data["confirmation"] = f"Is {new_times[0]} okay for {rem_data['task']}, {nickname}?"
                 context.user_data["pending_medications"] = pending_meds
                 context.user_data["pending_reminders"] = pending_reminders
-                bot_response = f"Okay, {nickname}, I’ve updated the times to {','.join(new_times)}. Is that right? 😊 Reply ‘yes’ or ‘no, <new time>’."
+                bot_response = f"Okay, {nickname}, I’ve updated the times to {','.join(new_times)}. Is that right? 😊 Reply ‘yes’ or ‘no, new time (e.g., 18:00)’ to change. 💕"
                 await update.message.reply_text(bot_response)
                 await save_conversation(user_phone, user_message, bot_response)
                 return
@@ -245,7 +245,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Use Gemini AI to parse message with retry logic
     prompt = f"""
-    You are Chuty, a loving nurse-like bot addressing the user as '{nickname}'. 
+    You are Chuty, a loving nurse-like bot addressing the user ONLY as 'Baby' or 'Love' (use '{nickname}' for this response). 
     Conversation history:
     {conversation_history}
 
@@ -263,7 +263,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
        - time ('HH:MM', e.g., '16:45')
        - confirmation (e.g., 'Is 16:45 okay for drinking water, {nickname}?')
     3. If no medication or reminder, provide nurse-like health advice based on the message and history (e.g., hydration tips, party advice).
-    4. Generate a warm, affectionate response (under 100 words) with emojis (💖, 🌸, 😘). For meds/reminders, list and confirm times. For health, offer caring advice.
+    4. Generate a warm, affectionate response (under 100 words) with emojis (💖, 🌸, 😘). For meds/reminders
     5. Return valid JSON:
     {{
       "medication": [{{"name": "...", "quantity": 1, "meal_timing": "...", "frequency": "...", "time": "...", "confirmation": "..."}}] or [],
@@ -284,17 +284,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 rem_data_list = result.get("reminders", [])
                 bot_response = result.get("response", f"Hmm, {nickname}, I didn’t catch that. Tell me about your meds, reminders, or health! 😊")
 
+                # Validate and construct response
                 if med_data_list or rem_data_list:
-                    context.user_data["pending_medications"] = med_data_list
-                    context.user_data["pending_reminders"] = rem_data_list
-                    logger.info(f"Pending medications: {med_data_list}, Pending reminders: {rem_data_list}")
-                    await update.message.reply_text(
-                        f"{bot_response} Reply ‘yes’ to confirm or ‘no, <new time>’ to change. 💕"
-                    )
-                else:
-                    context.user_data["pending_medications"] = []
-                    context.user_data["pending_reminders"] = []
-                    await update.message.reply_text(bot_response)
+                    expected_response = f"Got it, {nickname}! 💖"
+                    if med_data_list:
+                        for med_data in med_data_list:
+                            time_label = "night" if med_data["time"] == "20:00" else "time"
+                            expected_response += f" {med_data['name']} {med_data['quantity']} at {med_data['time']} ({time_label})."
+                    if rem_data_list:
+                        for rem_data in rem_data_list:
+                            expected_response += f" {rem_data['task'].capitalize()} at {rem_data['time']}."
+                    expected_response += f" Is this right? 😊 Reply ‘yes’ or ‘no, new time (e.g., 18:00)’ to change. 💕"
+                    bot_response = expected_response  # Override with correct format
+
+                context.user_data["pending_medications"] = med_data_list
+                context.user_data["pending_reminders"] = rem_data_list
+                logger.info(f"Pending medications: {med_data_list}, Pending reminders: {rem_data_list}")
+                await update.message.reply_text(bot_response)
                 await save_conversation(user_phone, user_message, bot_response)
                 return
 
@@ -307,7 +313,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"Error processing message (attempt {attempt + 1}): {e}")
                 if attempt < 2:
-                    await asyncio.sleep(1)  # Wait before retry
+                    await asyncio.sleep(1)
                     continue
                 bot_response = f"Oh, {nickname}, something went wrong: {str(e)}. Tell me about your meds, reminders, or health again? 😘"
                 await update.message.reply_text(bot_response)
