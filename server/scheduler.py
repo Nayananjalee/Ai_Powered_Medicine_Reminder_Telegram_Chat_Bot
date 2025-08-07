@@ -28,7 +28,7 @@ async def send_telegram_reminder(user_name, user_telegram_id, med_name, quantity
         print("ERROR: Bot not initialized - check TELEGRAM_BOT_TOKEN")
         return False
     
-    nickname = random.choice(["Bole", "Kukku Patto"])
+    nickname = random.choice(["Bole"])
     prompt = f"""
     Generate a short, loving medication reminder for {nickname} (real name: {user_name}) to take {quantity} {med_name} {meal_timing} their meal.
     Use a warm, affectionate tone with emojis (💖, 🌸, 😘).
@@ -92,7 +92,7 @@ if __name__ == "__main__":
     scheduler = BackgroundScheduler()
     scheduler.add_job(check_and_send_reminders, 'interval', minutes=1)
     scheduler.start()
-    print(f"🚀 Your loving scheduler is ready to care for {random.choice(['Bole', 'Kukku Patto'])}! 💕")
+    print(f"🚀 Your loving scheduler is ready to care for {random.choice(['Bole'])}! 💕")
     try:
         while True:
             time.sleep(60)
