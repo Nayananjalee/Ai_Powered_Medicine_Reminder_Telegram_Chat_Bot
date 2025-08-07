@@ -8,6 +8,8 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from dotenv import load_dotenv
 from database import supabase
 from google.generativeai import GenerativeModel, configure
+from datetime import datetime
+import aiohttp
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -43,85 +45,134 @@ async def ensure_user_exists(user_id, user_name):
         logger.error(f"Error creating user {user_phone}: {e}")
         raise
 
+async def save_conversation(user_phone, user_message, bot_response):
+    """Save conversation to Supabase."""
+    try:
+        conversation_data = {
+            "user_phone": user_phone,
+            "user_message": user_message,
+            "bot_response": bot_response,
+            "timestamp": datetime.now().isoformat()
+        }
+        logger.info(f"Saving conversation: {conversation_data}")
+        supabase.table("conversations").insert(conversation_data).execute()
+        logger.info(f"Conversation saved successfully")
+    except Exception as e:
+        logger.error(f"Error saving conversation: {e}")
+
+async def get_conversation_history(user_phone):
+    """Retrieve recent conversation history."""
+    try:
+        conversations = supabase.table("conversations").select("*").eq("user_phone", user_phone).order("timestamp", desc=True).limit(5).execute().data
+        history = "\n".join([f"User: {c['user_message']}\nBot: {c['bot_response']}" for c in conversations])
+        return history or "No recent conversation history."
+    except Exception as e:
+        logger.error(f"Error retrieving conversation history: {e}")
+        return "No recent conversation history."
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    nickname = random.choice(["Bole"])
+    nickname = random.choice(["Baby","Love"])
     try:
-        await ensure_user_exists(user.id, user.first_name)
-        await update.message.reply_text(
-            f"Hey {nickname}, my sweetest! I'm your loving Medication Reminder Bot! 💖\n"
-            "Just tell me about your meds, like 'Fexet night 1' or 'Predni morning 2', and I'll set reminders.\n"
-            "Here’s how I can pamper you:\n"
+        user_phone = await ensure_user_exists(user.id, user.first_name)
+        bot_response = (
+            f"Hey {nickname}, my sweetest! I'm your loving nurse bot, Chuty! 🧑‍⚕️💖\n"
+            "Tell me about your meds (e.g., 'Fexet night 1'), reminders (e.g., 'drink water at 4:45 PM'), or how you're feeling. 😘\n"
+            "Commands:\n"
             "💊 /start - Get cozy with me\n"
-            "💡 /help - See sweet examples\n"
-            "📋 /status - Check your meds\n"
+            "💡 /help - See examples\n"
+            "📋 /status - Check meds and reminders\n"
             "🗑️ /clear - Start fresh\n"
-            "😘 /love - A little love note from me!"
+            "😘 /love - A loving note"
         )
+        await update.message.reply_text(bot_response)
+        await save_conversation(user_phone, "/start", bot_response)
     except Exception as e:
         logger.error(f"Error in start command: {e}")
-        await update.message.reply_text(
-            f"Oh, {nickname}, something went wrong setting you up! 😔 Please try /start again or contact support. 💕"
-        )
+        bot_response = f"Oh, {nickname}, something went wrong setting you up! 😔 Please try /start again. 💕"
+        await update.message.reply_text(bot_response)
+        await save_conversation(user_phone, "/start", bot_response)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    nickname = random.choice(["Bole"])
-    await update.message.reply_text(
-        f"Hi {nickname}! Here’s how you can tell me about your meds:\n"
-        "🌸 'Fexet night 1' → 1 Fexet at night\n"
-        "🌸 'Moxikind every meal one' → 1 Moxikind with meals\n"
-        "🌸 'Predni morning 2' → 2 Predni in the morning\n"
-        "🌸 'Lisinopril 5mg twice a day before meals'\n"
-        f"I'll confirm the times with you! Use /status to see your meds or /clear to start fresh. 😘"
+    nickname = random.choice(["Baby","Love"])
+    user_phone = f"tg_{update.effective_user.id}"
+    bot_response = (
+        f"Hi {nickname}! I'm Chuty, your nurse bot. 🌸 Here's how to chat:\n"
+        "💊 Meds: 'Fexet night 1' → 1 Fexet at night\n"
+        "💧 Reminders: 'Drink water at 4:45 PM'\n"
+        "💬 Health: 'I have a cold' or 'Going to a party tonight'\n"
+        "I'll guide you with love! Use /status, /clear, or /love. 😘"
     )
+    await update.message.reply_text(bot_response)
+    await save_conversation(user_phone, "/help", bot_response)
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    nickname = random.choice(["Bole"])
-    meds = supabase.table("medications").select("*").eq("user_phone", f"tg_{user_id}").execute().data
-    if not meds:
-        await update.message.reply_text(f"No meds yet, {nickname}! Tell me what you’re taking, and I’ll remind you with love. 💕")
-        return
-    response = f"Your meds, my dear {nickname}:\n"
-    for med in meds:
-        response += f"💊 {med['name']} - {med['quantity']} ({med['frequency']}, {med['meal_timing']} meal) at {med['time']}\n"
-    await update.message.reply_text(response + f"You’re doing amazing, {nickname}! Keep it up! 🌟")
+    nickname = random.choice(["Baby","Love"])
+    user_phone = f"tg_{user_id}"
+    meds = supabase.table("medications").select("*").eq("user_phone", user_phone).execute().data
+    reminders = supabase.table("reminders").select("*").eq("user_phone", user_phone).execute().data
+    bot_response = f"Your schedule, my dear {nickname}:\n"
+    if meds:
+        bot_response += "\n💊 Medications:\n"
+        for med in meds:
+            bot_response += f"  {med['name']} - {med['quantity']} ({med['frequency']}, {med['meal_timing']} meal) at {med['time']}\n"
+    if reminders:
+        bot_response += "\n💧 Reminders:\n"
+        for rem in reminders:
+            bot_response += f"  {rem['task']} at {rem['time']}\n"
+    if not (meds or reminders):
+        bot_response = f"No meds or reminders yet, {nickname}! Tell me what you need, and I’ll care for you. 💕\n"
+    bot_response += f"How can I help you feel better today? 🌟"
+    await update.message.reply_text(bot_response)
+    await save_conversation(user_phone, "/status", bot_response)
 
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    nickname = random.choice(["Bole"])
-    supabase.table("medications").delete().eq("user_phone", f"tg_{user_id}").execute()
-    await update.message.reply_text(f"All your meds are cleared, {nickname}. Ready for a fresh start? 😊")
+    nickname = random.choice(["Baby","Love"])
+    user_phone = f"tg_{user_id}"
+    supabase.table("medications").delete().eq("user_phone", user_phone).execute()
+    supabase.table("reminders").delete().eq("user_phone", user_phone).execute()
+    bot_response = f"All your meds and reminders are cleared, {nickname}. Ready for a fresh start? 😊 How’s your health today? 💖"
+    await update.message.reply_text(bot_response)
+    await save_conversation(user_phone, "/clear", bot_response)
 
 async def love(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    nickname = random.choice(["Bole"])
-    prompt = f"Generate a short, loving message for {nickname}, using a warm and affectionate tone with emojis. Keep it sweet and under 50 words."
+    nickname = random.choice(["Baby","Love"])
+    user_phone = f"tg_{update.effective_user.id}"
+    prompt = f"Generate a short, loving message for {nickname}, using a warm, affectionate tone with emojis. Keep it sweet and under 50 words."
     try:
         response = gemini_model.generate_content(prompt)
-        await update.message.reply_text(response.text.strip())
+        bot_response = response.text.strip()
     except Exception as e:
-        await update.message.reply_text(f"Just a little note, {nickname}, to say I adore you! 😘")
+        logger.error(f"Error generating love message: {e}")
+        bot_response = f"Just a little note, {nickname}, to say I adore you! 😘"
+    await update.message.reply_text(bot_response)
+    await save_conversation(user_phone, "/love", bot_response)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text.lower().strip()
     user_id = str(update.effective_user.id)
     user_name = update.effective_user.first_name
-    nickname = random.choice(["Bole"])
+    nickname = random.choice(["Baby","Love"])
+    user_phone = f"tg_{user_id}"
 
-    # Ensure user exists before processing
+    # Ensure user exists
     try:
         user_phone = await ensure_user_exists(user_id, user_name)
     except Exception as e:
         logger.error(f"Error ensuring user exists: {e}")
-        await update.message.reply_text(
-            f"Oh, {nickname}, I had trouble setting you up! 😔 Please try /start again. 💕"
-        )
+        bot_response = f"Oh, {nickname}, I had trouble setting you up! 😔 Please try /start again. 💕"
+        await update.message.reply_text(bot_response)
+        await save_conversation(user_phone, user_message, bot_response)
         return
 
-    # Check if user is confirming a previous medication
-    if context.user_data.get("pending_medications"):
-        pending_meds = context.user_data["pending_medications"]
+    # Check if user is confirming a previous medication or reminder
+    if context.user_data.get("pending_medications") or context.user_data.get("pending_reminders"):
+        pending_meds = context.user_data.get("pending_medications", [])
+        pending_reminders = context.user_data.get("pending_reminders", [])
         if user_message.startswith("yes"):
+            # Save medications
             for med_data in pending_meds:
                 times = med_data.get("time", "08:00").split(",")
                 for time in times:
@@ -139,85 +190,129 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         supabase.table("medications").insert(med).execute()
                     except Exception as e:
                         logger.error(f"Error inserting medication {med['name']}: {e}")
-                        await update.message.reply_text(
-                            f"Oh, {nickname}, I couldn’t save {med['name']}! 😔 Please try again. 💕"
-                        )
+                        bot_response = f"Oh, {nickname}, I couldn’t save {med['name']}! 😔 Please try again. 💕"
+                        await update.message.reply_text(bot_response)
+                        await save_conversation(user_phone, user_message, bot_response)
                         return
+            # Save reminders
+            for rem_data in pending_reminders:
+                rem = {
+                    "user_phone": user_phone,
+                    "task": rem_data["task"],
+                    "time": rem_data["time"],
+                    "sent": False
+                }
+                logger.info(f"Inserting confirmed reminder into Supabase: {rem}")
+                try:
+                    supabase.table("reminders").insert(rem).execute()
+                except Exception as e:
+                    logger.error(f"Error inserting reminder {rem['task']}: {e}")
+                    bot_response = f"Oh, {nickname}, I couldn’t save the {rem['task']} reminder! 😔 Please try again. 💕"
+                    await update.message.reply_text(bot_response)
+                    await save_conversation(user_phone, user_message, bot_response)
+                    return
             context.user_data["pending_medications"] = []
-            await update.message.reply_text(
-                f"All set, my dear {nickname}! Your meds are saved, and I’ll remind you with love. 💖 How are you feeling today? 😘"
-            )
+            context.user_data["pending_reminders"] = []
+            bot_response = f"All set, my dear {nickname}! Your meds and reminders are saved. 💖 How are you feeling today? 😘"
+            await update.message.reply_text(bot_response)
+            await save_conversation(user_phone, user_message, bot_response)
             return
         elif user_message.startswith("no"):
-            # Extract new times if provided (e.g., "no, 09:00")
             new_times = user_message.replace("no", "").strip().split(",")
             if new_times and new_times[0]:
                 for med_data in pending_meds:
                     med_data["time"] = ",".join(new_times)
                     med_data["confirmation"] = f"Is {','.join(new_times)} okay for {med_data['name']}, {nickname}?"
+                for rem_data in pending_reminders:
+                    rem_data["time"] = new_times[0]
+                    rem_data["confirmation"] = f"Is {new_times[0]} okay for {rem_data['task']}, {nickname}?"
                 context.user_data["pending_medications"] = pending_meds
-                response = f"Okay, {nickname}, I’ve updated the times to {','.join(new_times)}. Is that right? 😊 Reply ‘yes’ or ‘no, <new time>’."
-                await update.message.reply_text(response)
+                context.user_data["pending_reminders"] = pending_reminders
+                bot_response = f"Okay, {nickname}, I’ve updated the times to {','.join(new_times)}. Is that right? 😊 Reply ‘yes’ or ‘no, <new time>’."
+                await update.message.reply_text(bot_response)
+                await save_conversation(user_phone, user_message, bot_response)
                 return
             else:
                 context.user_data["pending_medications"] = []
-                await update.message.reply_text(f"No worries, {nickname}. Let’s try again. Tell me about your meds! 🌸")
+                context.user_data["pending_reminders"] = []
+                bot_response = f"No worries, {nickname}. Let’s try again. Tell me about your meds, reminders, or health! 🌸"
+                await update.message.reply_text(bot_response)
+                await save_conversation(user_phone, user_message, bot_response)
                 return
 
-    # Use Gemini AI to parse new medication input
+    # Fetch conversation history
+    conversation_history = await get_conversation_history(user_phone)
+
+    # Use Gemini AI to parse message with retry logic
     prompt = f"""
-    You are a loving medication reminder bot addressing the user as '{nickname}'. 
-    From this message: "{user_message}"
-    1. Extract medication details into a JSON array of objects, each with:
+    You are Chuty, a loving nurse-like bot addressing the user as '{nickname}'. 
+    Conversation history:
+    {conversation_history}
+
+    Current message: "{user_message}"
+
+    1. If the message contains medication details, extract them into a JSON array of objects, each with:
        - name (e.g., 'Fexet')
        - quantity (integer, default 1)
        - meal_timing ('before' or 'after', default 'before')
        - frequency ('daily' or 'every6hours', default 'daily')
-       - time ('HH:MM', map phrases like 'morning' to '08:00', 'night' to '20:00', 'every meal' to '08:00,14:00,20:00', default '08:00')
+       - time ('HH:MM', map 'morning' to '08:00', 'night' to '20:00', 'every meal' to '08:00,14:00,20:00', default '08:00')
        - confirmation (e.g., 'Is 20:00 okay for Fexet, {nickname}?')
-    2. Generate a warm, affectionate response listing medications and asking for confirmation. Use emojis (💖, 🌸, 😘) and keep it under 100 words.
-    3. If no medication details, return an empty array and ask a caring question (e.g., 'How are you feeling, {nickname}?').
-    4. Return valid JSON only, no comments or extra text.
-    Return format:
+    2. If the message contains a non-medication reminder (e.g., 'drink water at 4:45 PM'), extract into a JSON array of objects, each with:
+       - task (e.g., 'drink water')
+       - time ('HH:MM', e.g., '16:45')
+       - confirmation (e.g., 'Is 16:45 okay for drinking water, {nickname}?')
+    3. If no medication or reminder, provide nurse-like health advice based on the message and history (e.g., hydration tips, party advice).
+    4. Generate a warm, affectionate response (under 100 words) with emojis (💖, 🌸, 😘). For meds/reminders, list and confirm times. For health, offer caring advice.
+    5. Return valid JSON:
     {{
-      "medication": [
-        {{"name": "...", "quantity": 1, "meal_timing": "...", "frequency": "...", "time": "...", "confirmation": "..."}},
-        ...
-      ],
+      "medication": [{{"name": "...", "quantity": 1, "meal_timing": "...", "frequency": "...", "time": "...", "confirmation": "..."}}] or [],
+      "reminders": [{{"task": "...", "time": "...", "confirmation": "..."}}] or [],
       "response": "..."
     }}
     """
-    try:
-        response = gemini_model.generate_content(prompt)
-        logger.info(f"Gemini raw response: {response.text}")
-        # Strip JSON markers and parse safely
-        response_text = response.text.strip()
-        if response_text.startswith("```json") and response_text.endswith("```"):
-            response_text = response_text[7:-3].strip()
-        result = json.loads(response_text)
-        med_data_list = result.get("medication", [])
-        bot_response = result.get("response", f"Hmm, {nickname}, I didn’t catch that. Could you tell me about your meds? 😊")
+    async with aiohttp.ClientSession() as session:
+        for attempt in range(3):
+            try:
+                response = gemini_model.generate_content(prompt)
+                logger.info(f"Gemini raw response: {response.text}")
+                response_text = response.text.strip()
+                if response_text.startswith("```json") and response_text.endswith("```"):
+                    response_text = response_text[7:-3].strip()
+                result = json.loads(response_text)
+                med_data_list = result.get("medication", [])
+                rem_data_list = result.get("reminders", [])
+                bot_response = result.get("response", f"Hmm, {nickname}, I didn’t catch that. Tell me about your meds, reminders, or health! 😊")
 
-        if med_data_list:
-            context.user_data["pending_medications"] = med_data_list
-            logger.info(f"Pending medications for confirmation: {med_data_list}")
-            await update.message.reply_text(
-                f"{bot_response} Reply ‘yes’ to confirm or ‘no, <new time>’ to change. 💕"
-            )
-        else:
-            context.user_data["pending_medications"] = []
-            await update.message.reply_text(bot_response)
+                if med_data_list or rem_data_list:
+                    context.user_data["pending_medications"] = med_data_list
+                    context.user_data["pending_reminders"] = rem_data_list
+                    logger.info(f"Pending medications: {med_data_list}, Pending reminders: {rem_data_list}")
+                    await update.message.reply_text(
+                        f"{bot_response} Reply ‘yes’ to confirm or ‘no, <new time>’ to change. 💕"
+                    )
+                else:
+                    context.user_data["pending_medications"] = []
+                    context.user_data["pending_reminders"] = []
+                    await update.message.reply_text(bot_response)
+                await save_conversation(user_phone, user_message, bot_response)
+                return
 
-    except json.JSONDecodeError as je:
-        logger.error(f"JSON parse error: {je} - Raw response: {response.text}")
-        await update.message.reply_text(
-            f"Oh, {nickname}, I got a bit confused! Could you tell me about your meds again? 😊"
-        )
-    except Exception as e:
-        logger.error(f"Error processing message: {e} - Raw response: {response.text}")
-        await update.message.reply_text(
-            f"Oh, {nickname}, something went wrong: {str(e)}. Tell me about your meds again? 😘"
-        )
+            except json.JSONDecodeError as je:
+                logger.error(f"JSON parse error (attempt {attempt + 1}): {je} - Raw response: {response.text}")
+                bot_response = f"Oh, {nickname}, I got a bit confused! Could you tell me about your meds, reminders, or health again? 😊"
+                await update.message.reply_text(bot_response)
+                await save_conversation(user_phone, user_message, bot_response)
+                return
+            except Exception as e:
+                logger.error(f"Error processing message (attempt {attempt + 1}): {e}")
+                if attempt < 2:
+                    await asyncio.sleep(1)  # Wait before retry
+                    continue
+                bot_response = f"Oh, {nickname}, something went wrong: {str(e)}. Tell me about your meds, reminders, or health again? 😘"
+                await update.message.reply_text(bot_response)
+                await save_conversation(user_phone, user_message, bot_response)
+                return
 
 def run_bot():
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
@@ -227,7 +322,7 @@ def run_bot():
     app.add_handler(CommandHandler("clear", clear))
     app.add_handler(CommandHandler("love", love))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print(f"✅ Your loving bot is ready to care for {random.choice(['Bole'])}! 💖")
+    print(f"✅ Chuty, your loving nurse bot, is ready to care for {random.choice(['Baby','Love'])}! 🧑‍⚕️💖")
     app.run_polling(poll_interval=1)
 
 if __name__ == "__main__":
