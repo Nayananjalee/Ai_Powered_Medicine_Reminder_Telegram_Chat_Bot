@@ -45,7 +45,7 @@ async def ensure_user_exists(user_id, user_name):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    nickname = random.choice(["Bole", "Kukku Patto"])
+    nickname = random.choice(["Bole"])
     try:
         await ensure_user_exists(user.id, user.first_name)
         await update.message.reply_text(
@@ -65,7 +65,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    nickname = random.choice(["Bole", "Kukku Patto"])
+    nickname = random.choice(["Bole"])
     await update.message.reply_text(
         f"Hi {nickname}! Here’s how you can tell me about your meds:\n"
         "🌸 'Fexet night 1' → 1 Fexet at night\n"
@@ -77,7 +77,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    nickname = random.choice(["Bole", "Kukku Patto"])
+    nickname = random.choice(["Bole"])
     meds = supabase.table("medications").select("*").eq("user_phone", f"tg_{user_id}").execute().data
     if not meds:
         await update.message.reply_text(f"No meds yet, {nickname}! Tell me what you’re taking, and I’ll remind you with love. 💕")
@@ -89,12 +89,12 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    nickname = random.choice(["Bole", "Kukku Patto"])
+    nickname = random.choice(["Bole"])
     supabase.table("medications").delete().eq("user_phone", f"tg_{user_id}").execute()
     await update.message.reply_text(f"All your meds are cleared, {nickname}. Ready for a fresh start? 😊")
 
 async def love(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    nickname = random.choice(["Bole", "Kukku Patto"])
+    nickname = random.choice(["Bole"])
     prompt = f"Generate a short, loving message for {nickname}, using a warm and affectionate tone with emojis. Keep it sweet and under 50 words."
     try:
         response = gemini_model.generate_content(prompt)
@@ -106,7 +106,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text.lower().strip()
     user_id = str(update.effective_user.id)
     user_name = update.effective_user.first_name
-    nickname = random.choice(["Bole", "Kukku Patto"])
+    nickname = random.choice(["Bole"])
 
     # Ensure user exists before processing
     try:
@@ -227,7 +227,7 @@ def run_bot():
     app.add_handler(CommandHandler("clear", clear))
     app.add_handler(CommandHandler("love", love))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print(f"✅ Your loving bot is ready to care for {random.choice(['Bole', 'Kukku Patto'])}! 💖")
+    print(f"✅ Your loving bot is ready to care for {random.choice(['Bole'])}! 💖")
     app.run_polling(poll_interval=1)
 
 if __name__ == "__main__":
